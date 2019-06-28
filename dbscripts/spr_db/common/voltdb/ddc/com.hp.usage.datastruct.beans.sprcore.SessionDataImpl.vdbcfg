@@ -1,0 +1,19 @@
+name=sessionDataCache
+pojoClass=com.hp.usage.datastruct.beans.sprcore.SessionDataImpl
+hbmFile=ormapping/SessionData.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=;BY_SUBSCRIBER->where subscriber_id=?
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprcore
+parentName=subscriberCache
+fk=subscriber_id
+globalSqls=
+filterField=session_id = :sessionId or last_update_timestamp < :sessionUpdateTimeUpper
+GLName=
+sqlsMapGL=
+
+
+
+

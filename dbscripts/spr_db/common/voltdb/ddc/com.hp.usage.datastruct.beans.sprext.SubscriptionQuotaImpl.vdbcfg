@@ -1,0 +1,19 @@
+name=subscriptionQuotaCache
+pojoClass=com.hp.usage.datastruct.beans.sprext.SubscriptionQuotaImpl
+hbmFile=ormapping/SubscriptionQuota.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=BY_SUBSCRIPTION->where subscriber_id=? and subscription_id=? order by subscription_id,id;
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprext
+parentName=subscriptionCache
+fk=subscriber_id,subscription_id
+globalSqls=
+filterField=
+GLName=
+sqlsMapGL=
+
+
+
+

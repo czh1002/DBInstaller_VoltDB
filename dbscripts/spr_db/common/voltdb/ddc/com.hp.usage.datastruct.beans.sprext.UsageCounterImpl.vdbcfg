@@ -1,0 +1,19 @@
+name=usageCounterCache
+pojoClass=com.hp.usage.datastruct.beans.sprext.UsageCounterImpl
+hbmFile=ormapping/UsageCounter.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=;BY_SUBSCRIBER->where subscriber_id=? order by subscriber_id,id
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprext
+parentName=subscriberCache
+fk=subscriber_id
+globalSqls=
+filterField=(device_id = :currentDeviceId or device_id < :otherDeviceIdUpper) and (state_recycle = 'A' or last_update_timestamp >= :updateTimeLower)
+GLName=
+sqlsMapGL=
+
+
+
+

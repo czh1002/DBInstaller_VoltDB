@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<deployment>
+  <cluster kfactor="$PLACEHOLDER_KFACTOR" sitesperhost="$PLACEHOLDER_SITES_PER_HOSTS" />
+  <security enabled="true"/>
+  <users>
+    <user name="$PLACEHOLDER_ADMIN_USER" password="$PLACEHOLDER_ADMIN_PASSWORD" roles="administrator" plaintext="true"/>
+    <user name="$PLACEHOLDER_DB_USER" password="$PLACEHOLDER_DB_PASSWORD" roles="user"/>
+  </users>
+  <paths>
+    <voltdbroot path="$PLACEHOLDER_DB_ROOT/dbs/spr"/>
+    <snapshots path="snapshots"/>
+    <commandlogsnapshot path="loggingSnapshots"/>
+    <commandlog path="logging"/>
+	<droverflow path="droverflow" />
+	<exportoverflow path="export_overflow"/>
+  </paths>
+  <heartbeat timeout="10"/>
+  <partition-detection enabled="true" />
+  <consistency readlevel="fast" />
+  <httpd port="$PLACEHOLDER_HTTPD_PORT">
+    <jsonapi enabled="true"/>
+  </httpd>
+  <commandlog logsize="1024" enabled="true" synchronous="false">
+    <frequency transactions="2147483647" time="200"/>
+  </commandlog>
+  <snapshot enabled="true" frequency="600s" retain="2" prefix="SPR" /> 
+  <export>
+      <configuration enabled="$PLACEHOLDER_EXPORT_ABM_ENABLED" target="ABMSourceLog" type="file">
+           <property name="type">tsv</property>
+           <property name="nonce">Export</property>
+           <property name="outdir">$PLACEHOLDER_VAR_EIUM/csv/ABMSourceLog</property>
+		   <property name="period">$PLACEHOLDER_VOLTDB_EXPORT_ROLL_PERIOD</property>
+		   <property name="dateFormat">yyyyMMddHHmmss</property>
+		   <property name="skipinternals">true</property>
+		   <property name="with-schema">false</property>
+       </configuration>
+	   
+	   <configuration enabled="$PLACEHOLDER_EXPORT_ABM_ENABLED" target="ABMBalancePayoutLog" type="file">
+           <property name="type">tsv</property>
+           <property name="nonce">Export</property>
+           <property name="outdir">$PLACEHOLDER_VAR_EIUM/csv/ABMBalancePayoutLog</property>
+		   <property name="period">$PLACEHOLDER_VOLTDB_EXPORT_ROLL_PERIOD</property>
+		   <property name="dateFormat">yyyyMMddHHmmss</property>
+		   <property name="skipinternals">true</property>
+		   <property name="with-schema">false</property>
+       </configuration>
+	   
+	    <configuration enabled="true" target="CounterUpdateLog" type="file">
+			<property name="type">tsv</property>
+			<property name="nonce">Export</property>
+			<property name="outdir">$PLACEHOLDER_VAR_EIUM/csv/CounterUpdateLog</property>
+			<property name="period">$PLACEHOLDER_VOLTDB_EXPORT_ROLL_PERIOD</property>
+			<property name="dateFormat">yyyyMMddHHmmss</property>
+			<property name="skipinternals">true</property>
+			<property name="with-schema">false</property>
+	    </configuration>
+		
+		<configuration enabled="true" target="QuotaUpdateLog" type="file">
+			<property name="type">tsv</property>
+			<property name="nonce">Export</property>
+			<property name="outdir">$PLACEHOLDER_VAR_EIUM/csv/QuotaUpdateLog</property>
+			<property name="period">$PLACEHOLDER_VOLTDB_EXPORT_ROLL_PERIOD</property>
+			<property name="dateFormat">yyyyMMddHHmmss</property>
+			<property name="skipinternals">true</property>
+			<property name="with-schema">false</property>
+	    </configuration>
+  </export>
+
+  <systemsettings>
+    <temptables maxsize="100"/>
+    <snapshot priority="6"/>
+	<resourcemonitor frequency="60">
+        <memorylimit size="80%"/>
+        <disklimit>
+           <feature name="snapshots" size="80%" />
+           <feature name="commandlog" size="80%" />
+		   <feature name="commandlogsnapshot" size="80%" />
+		   <feature name="droverflow" size="80%" />
+		   <feature name="exportoverflow" size="80%" />
+        </disklimit>
+    </resourcemonitor>
+  </systemsettings>
+  
+</deployment>

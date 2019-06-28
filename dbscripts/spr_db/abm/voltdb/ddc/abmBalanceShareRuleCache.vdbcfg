@@ -1,0 +1,15 @@
+name=abmBalanceShareRuleCache
+packageName=com.hp.usage.datastruct.beans.abmext
+pojoClass=com.hp.usage.datastruct.beans.abmext.BalanceShareRuleImpl
+hbmFile=ormapping/abm.BalanceShareRule.hbm.xml
+partitionField=
+partitionColumnForSP=SUBSCRIBER.id.long
+sqlsMap=GetByBalance->where account_balance_id = ? and subscriber_id = ? and state_recycle = 'A'; \
+GetByAppliObj->WHERE applicable_object_id = ? AND applicable_object_type = ? AND state_recycle = 'A'; \
+GetByAppliSubscriber->where applicable_subscriber_id = ? and state_recycle = 'A'; \
+GetAllByBalance->where account_balance_id = ? and subscriber_id = ?
+parentName=subscriberCache
+batchCommitGroup=shareRuleGroup
+fk=applicable_subscriber_id
+fixedFilterCondition=
+globalSqls=

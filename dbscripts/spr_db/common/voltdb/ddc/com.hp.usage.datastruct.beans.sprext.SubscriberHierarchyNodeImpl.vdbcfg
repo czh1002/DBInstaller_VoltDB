@@ -1,0 +1,21 @@
+name=subscriberHierarchyNodeCache
+pojoClass=com.hp.usage.datastruct.beans.sprext.SubscriberHierarchyNodeImpl
+hbmFile=ormapping/SubscriberHierarchyNode.hbm.xml
+partitionField=
+partitionedPK=true
+sqlsMap=BY_HIERARCHYNAME_PARENTID->where name=? and parent_id=?;BY_HIERARCHYID->where hierarchy_id=?;BY_SUBSCRIBERID_PARENTID->where subscriber_id=? and parent_id=?;BY_HIERARCHYID_NODEID->where hierarchy_id=? and (id=? or parent_id=?);BY_HIERARCHYID_NONSUBSCRIBERID->where hierarchy_id=? and subscriber_id!=0 and subscriber_id!=?;BY_SHARINGSUBSCRIBERID_SUBSCRIBERID->where subscriber_id=? or subscriber_id=?;BY_HIERARCHYID_PARENTID->where hierarchy_id=? and parent_id=?;BY_SUBSCRIBER->where subscriber_id=?;BY_HIERARCHYNAME->where name=?;BY_NAME_PREFIX_PARENTID->where name like ? and parent_id=?;BY_NAME_PREFIX->where name like ?;
+batchCommitGroup=subscriberHierarchyGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprext
+parentName=
+fk=
+globalSqls=
+filterField=
+GLName=
+sqlsMapGL=
+
+
+
+
+
+partitionColumnForSP=SUBSCRIBER.id.long

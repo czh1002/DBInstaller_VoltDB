@@ -1,0 +1,19 @@
+name=contactCache
+pojoClass=com.hp.usage.datastruct.beans.sprext.ContactImpl
+hbmFile=ormapping/Contact.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=BY_SUBSCRIBER->where subscriber_id=? order by subscriber_id, channel;
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprext
+parentName=subscriberCache
+fk=subscriber_id
+globalSqls=
+filterField=
+GLName=
+sqlsMapGL=
+
+
+
+

@@ -1,0 +1,19 @@
+name=deviceIdentifierCache
+pojoClass=com.hp.usage.datastruct.beans.sprcore.DeviceIdentifierImpl
+hbmFile=ormapping/DeviceIdentifier.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=BY_SUBSCRIBER->where subscriber_id=? order by subscriber_id,identifier_type,identifier_value;FIRST_IDENTIFIER->where subscriber_id=? and state_recycle='A' order by subscriber_id,identifier_type,identifier_value LIMIT 1
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprcore
+parentName=subscriberCache
+fk=subscriber_id
+globalSqls=
+filterField=(device_id = :currentDeviceId or device_id < :otherDeviceIdUpper) and (state_recycle = 'A' or last_update_timestamp >= :updateTimeLower)
+GLName=
+sqlsMapGL=
+
+
+
+

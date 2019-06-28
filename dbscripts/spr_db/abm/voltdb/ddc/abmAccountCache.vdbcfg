@@ -1,0 +1,11 @@
+name=abmAccountCache
+packageName=com.hp.usage.datastruct.beans.abmext
+pojoClass=com.hp.usage.datastruct.beans.abmext.AccountImpl
+hbmFile=ormapping/abm.Account.hbm.xml
+partitionField=subscriberId
+sqlsMap=GetBySubscriber->where subscriber_id = ? and state_recycle = 'A' and state != 0; \
+GetAllBySubscriber->where subscriber_id = ?
+parentName=subscriberCache
+batchCommitGroup=sprGroup
+fk=subscriber_id
+fixedFilterCondition=

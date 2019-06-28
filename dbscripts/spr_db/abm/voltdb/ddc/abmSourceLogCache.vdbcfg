@@ -1,0 +1,10 @@
+name=abmSourceLogCache
+packageName=com.hp.usage.datastruct.beans.abmext
+pojoClass=com.hp.usage.datastruct.beans.abmext.ABMSourceLogImpl
+hbmFile=ormapping/abm.ABMSourceLog.hbm.xml
+partitionField=subscriberId
+sqlsMap=
+parentName=
+batchCommitGroup=sprGroup
+fk=
+exportTable=true

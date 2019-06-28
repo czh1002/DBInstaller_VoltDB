@@ -1,0 +1,843 @@
+#!/bin/bash
+
+#HOMEDIR=$(dirname $0)
+
+SNAPNAM=$(basename "$0" ".sh")
+SNAPDIR=$(dirname "$0")
+if [[ "$(echo $SNAPDIR | cut -c1)" != "/" ]]; then SNAPDIR="$PWD/$SNAPDIR"; fi
+HOMEDIR="$(cd "$SNAPDIR"; echo $PWD)";
+#echo $HOMEDIR
+SNAPTMD=/tmp
+# Warn: Please modify below variables very carefully
+# and make sure you know what they mean. 
+#VEM_URL=PLACEHOLDER_VEM_URL
+#VDB_ID=PLACEHOLDER_VDB_ID
+
+VDB_JAVA_HOME=PLACEHOLDER_VOLTDB_JAVA_HOME
+VDB_HOME=PLACEHOLDER_VOLTDB_HOME
+VDB_NAME=PLACEHOLDER_VOLTDB_DB_NAME
+VDB_HOST_NODE=PLACEHOLDER_VOLTDB_CLUSTER_HOST
+VDB_SSH_USER=PLACEHOLDER_VOLTDB_SSH_USER
+EIUM_VOLTDB_TOOL=PLACEHOLDER_EIUM_VOLTDB_TOOL
+EIUM_HOME=PLACEHOLDER_EIUM_HOME
+VDB_FLAG_NAME=PLACEHOLDER_VDB_FLAG_NAME
+VOLTDB_HEAPMAX=PLACEHOLDER_VOLTDB_HEAPMAX
+
+
+
+function usage() 
+{
+    echo "Usage: `basename $0` [start|stop|status|rejoin <parameters>|help]
+    rejoin parameters format:
+        rejoin <external(client,admin,replication) interface>/<internal interface>/<public(http) interface> [rejoinNodeGroup] 
+        rejoin <external(client,admin) interface>/<internal interface>/<public(http) interface>/<replication interface>  [rejoinNodeGroup] 
+        rejoin <external(client) interface>/<internal interface>/<public(http) interface>/<replication interface>/<admin interface> [rejoinNodeGroup]" 
+    exit 0
+} 
+
+function db_config_env()
+{
+    DATE=$(date +%Y.%m.%d.%H.%M.%S)
+    export JAVA_HOME=$VDB_JAVA_HOME
+	export PATH=$JAVA_HOME/bin:$PATH
+	export LOG4J_CONFIG_PATH=$HOMEDIR/voltdb_log4j.xml
+	case "$VDB_FLAG_NAME" in
+        spr_db) prefix="SPR"_$DATE;;
+        session_db) prefix="SESSION"_$DATE;;
+        *) echo "Invalid database type (spr_db|session_db)"
+		   exit 1
+		;;
+   esac
+#	prefix=${VDB_NAME}_${DATE}
+	CLASSPATH=.:$EIUM_VOLTDB_TOOL:
+	CLASSPATH=${CLASSPATH}`find "${EIUM_HOME}/lib" -name '*.jar'|tr '\n' :`
+    CLASSPATH=${CLASSPATH}`find "${EIUM_VOLTDB_TOOL}/lib" -name '*.jar'|tr '\n' :`
+}
+
+function db_status() 
+{
+     echo
+     check_dbini=`ssh -nq $VDB_SSH_USER@$VDB_HOST_NODE "ls $VDB_HOME/.database.ini"`
+	 if [ $? -ne 0 ]; then
+	      echo "The $VDB_NAME status: UNINSTALLED"
+	 else
+	     DATABASE_INFO=`ssh -nq $VDB_SSH_USER@$VDB_HOST_NODE "cat $VDB_HOME/.database.ini | grep '#$VDB_NAME '"`
+		# echo $DATABASE_INFO
+		 clientport=`echo $DATABASE_INFO | awk '{print $4}'`
+		 adminport=`echo $DATABASE_INFO | awk '{print $5}'`
+		 adminuser=`echo $DATABASE_INFO | awk '{print $12}'`
+		 adminpwd=`echo $DATABASE_INFO | awk '{print $13}'`
+		 adminpwd=`${JAVA_HOME}/bin/java -cp "${CLASSPATH}" com.hp.atom.vdb.tools.PasswdTool decrypt $adminpwd`
+		 CheckDatabaseExist=`$VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$clientport --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview" 2>&1 > /dev/null`
+		 if [ $? -ne 0 ]; then
+		     echo "The $VDB_NAME status: STOPPED"
+		 else
+		    #DatabaseStatus=`$VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$clientport --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview" | grep CLUSTERSTATE | awk '{print $3}'`
+			echo "The $VDB_NAME status: ACTIVE"
+			$VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$clientport --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview"
+		 fi
+	 fi
+	 echo
+}
+
+function db_start() 
+{
+     check_dbini=`ssh -nq $VDB_SSH_USER@$VDB_HOST_NODE "ls $VDB_HOME/.database.ini"`
+	 if [ $? -ne 0 ]; then
+	      echo "The $VDB_NAME had been uninstalled, please install it with the snap_db_installer.sh tool."
+		  exit 1
+	 else
+	     DATABASE_INFO=`ssh -nq $VDB_SSH_USER@$VDB_HOST_NODE "cat $VDB_HOME/.database.ini | grep '#$VDB_NAME '"`
+		 #echo $DATABASE_INFO
+		 adminport=`echo $DATABASE_INFO | awk '{print $5}'`
+		 adminuser=`echo $DATABASE_INFO | awk '{print $12}'`
+		 adminpwd=`echo $DATABASE_INFO | awk '{print $13}'`
+		 datapath=`echo $DATABASE_INFO | awk '{print $3}'`  
+		 hostList=`echo $DATABASE_INFO | awk '{print $2}'` 
+		 voltdb_start_port=`echo $DATABASE_INFO | awk '{print $14}'`
+		 voltdb_client_port=`echo $DATABASE_INFO | awk '{print $4}'`
+		 original_client_port=$voltdb_client_port
+		 voltdb_httpd_port=`echo $DATABASE_INFO | awk '{print $6}'`
+		 voltdb_internal_port=`echo $DATABASE_INFO | awk '{print $7}'`
+		 voltdb_repl_port=`echo $DATABASE_INFO | awk '{print $9}'`
+		 #voltdb_jmx_port=`echo $DATABASE_INFO | awk '{print $8}'`
+		 voltdb_zookeeper_port=`echo $DATABASE_INFO | awk '{print $8}'`
+		 database_work_model=`echo $DATABASE_INFO | awk '{print $15}'`
+		 VOLTDB_PLACEMENT_GROUPS=`echo $DATABASE_INFO | awk '{print $16}'`
+		 database_name=${VDB_NAME}
+		 adminpwd=`${JAVA_HOME}/bin/java -cp "${CLASSPATH}" com.hp.atom.vdb.tools.PasswdTool decrypt $adminpwd`
+		  CheckDatabaseExist=`$VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$adminport --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview" 2>&1 > /dev/null`
+		 if [[ "$?" == "0" ]]; then
+		     echo "The $VDB_NAME is running!!"
+			 exit 1
+		 else
+		     if [ -f ~/.voltdb_server/${VDB_HOST_NODE}_${voltdb_start_port}.pid ]; then
+			      PID=`cat ~/.voltdb_server/${VDB_HOST_NODE}_${voltdb_start_port}.pid`
+			      echo "The ${VDB_NAME} voltdb PID is:"$PID
+			      result=`ps -ax | awk '{print $1}' | grep " ${PID} "`
+			      if [ $? = 0 ]; then
+			          echo "The last voltdb process ${PID} is still alive, please start again later."
+				      exit 1
+			      else
+			          echo "The last voltdb process ${PID} is die, continue start......"
+			      fi
+		     fi
+			 sleep 5
+		     VOLTDBTMD="$SNAPTMD/vdb_tool.$$"
+			 mkdir -p $VOLTDBTMD
+			 START_HOST=
+			 #begin replace hostcounts
+			 hostcountNum=`echo "$hostList"|awk 'BEGIN{FS=","}{print NF}'`
+			 echo "get the host count is $hostcountNum"
+			 newString="hostcount=\"$hostcountNum\""
+			 replaceString=`grep "hostcount=" ${datapath}/config_log/deployment.xml | awk 'BEGIN{FS=" "}{for (i=1; i<=NF; i++) print $i}' | grep "hostcount="`
+			 sed -i -e "s|$replaceString|$newString|g" ${datapath}/config_log/deployment.xml
+			 #end replace hostcounts
+		    for servers in `echo "$hostList"|awk 'BEGIN{FS=","}{for (i=1; i<=NF; i++) print $i}' 2>/dev/null` ; do
+			     
+			     server=`echo $servers | awk -F/ '{print $1}'`
+				 IHOST=`echo $servers | awk -F/ '{print $2}'`
+				 PHOST=`echo $servers | awk -F/ '{print $3}'`
+				 RHOST=`echo $servers | awk -F/ '{print $4}'`
+				 AHOST=`echo $servers | awk -F/ '{print $5}'`
+				 
+				 if [ -z $IHOST ]; then
+				     IHOST=$server
+				 fi
+				 
+				 if [ -z $PHOST ]; then
+				      PHOST=$server
+				 fi
+				 
+				 if [ -z $RHOST ]; then
+				      RHOST=$server
+				 fi
+				 
+				 if [ -z $AHOST ]; then
+				      AHOST=$server
+				 fi
+				 
+				 voltdb_client_port_interface=$server:$voltdb_client_port
+				 voltdb_repl_port_interface=$RHOST:$voltdb_repl_port
+				 adminport_interface=$AHOST:$adminport
+				 httpd_interface=$PHOST:$voltdb_httpd_port
+				 
+				 if [ "x$START_HOST" == "x" ]; then
+				     if [ "x$IHOST" == "x" ]; then
+					      START_HOST=$server
+					 else
+					      START_HOST=$IHOST
+					 fi    
+				 fi
+				 
+				 getPlacementGroupName $server
+				 
+			     echo "" > ${VOLTDBTMD}/voltdb_start_$$.sh
+				 echo "export JAVA_HOME=$VDB_JAVA_HOME " >> ${VOLTDBTMD}/voltdb_start_$$.sh
+			     echo "export PATH=$JAVA_HOME/bin:$PATH  " >> ${VOLTDBTMD}/voltdb_start_$$.sh
+			     echo "export LOG4J_CONFIG_PATH=${VOLTDBTMD}/voltdb_log4j.xml" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				 echo "export VOLTDB_OPTS=\"${VOLTDB_OPTS} -XX:+PerfDisableSharedMem -DDISABLE_IMMEDIATE_SNAPSHOT_RESCHEDULING=true -DDISABLE_JMX=true\"" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				 echo "export VOLTDB_HEAPMAX=${VOLTDB_HEAPMAX}" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				 #echo "export VOLTDB_OPTS=\"-Dvolt.rmi.agent.port=${voltdb_jmx_port}\"" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				 commandlogenabled=`while read_xml_file; do
+                                     parse_xml_elements
+                                    done < ${datapath}/config_log/deployment.xml | grep -i "commandlog.enabled"`
+	             COMMAND_FLAG=`echo $commandlogenabled | awk -F= '{print $2}'`
+	             echo "commandLog enabled:"$COMMAND_FLAG
+				 if [[ "$COMMAND_FLAG" = "false" ]]; then
+				     if [ $database_work_model == 'REPLICA' ]; then
+				         echo "${VDB_HOME}/bin/voltdb create --force --replica --deployment=/${VOLTDBTMD}/deployment.xml --host=$START_HOST:$voltdb_start_port --client=$voltdb_client_port_interface --internal=$voltdb_internal_port  --replication=$voltdb_repl_port_interface --zookeeper=$voltdb_zookeeper_port  --admin=$adminport_interface --http=$httpd_interface --externalinterface=$server  --internalinterface=$IHOST --publicinterface=$PHOST $placement_group -B ${VOLTDBTMD}/${database_name}.jar 2>&1 > /${VOLTDBTMD}/voltdb_start.log" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				     else
+				         echo "${VDB_HOME}/bin/voltdb create --force --deployment=/${VOLTDBTMD}/deployment.xml --host=$START_HOST:$voltdb_start_port --client=$voltdb_client_port_interface --internal=$voltdb_internal_port  --replication=$voltdb_repl_port_interface --zookeeper=$voltdb_zookeeper_port  --admin=$adminport_interface --http=$httpd_interface --externalinterface=$server  --internalinterface=$IHOST --publicinterface=$PHOST $placement_group -B ${VOLTDBTMD}/${database_name}.jar 2>&1 > /${VOLTDBTMD}/voltdb_start.log" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				     fi
+                 else
+				     if [ $database_work_model == 'REPLICA' ]; then
+				         echo "${VDB_HOME}/bin/voltdb recover --replica --deployment=/${VOLTDBTMD}/deployment.xml --host=$START_HOST:$voltdb_start_port --client=$voltdb_client_port_interface --internal=$voltdb_internal_port  --replication=$voltdb_repl_port_interface --zookeeper=$voltdb_zookeeper_port  --admin=$adminport_interface --http=$httpd_interface --externalinterface=$server  --internalinterface=$IHOST --publicinterface=$PHOST $placement_group -B 2>&1 > /${VOLTDBTMD}/voltdb_start.log" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				     else
+				         echo "${VDB_HOME}/bin/voltdb recover --deployment=/${VOLTDBTMD}/deployment.xml --host=$START_HOST:$voltdb_start_port --client=$voltdb_client_port_interface --internal=$voltdb_internal_port  --replication=$voltdb_repl_port_interface --zookeeper=$voltdb_zookeeper_port  --admin=$adminport_interface --http=$httpd_interface --externalinterface=$server  --internalinterface=$IHOST --publicinterface=$PHOST $placement_group -B 2>&1 > /${VOLTDBTMD}/voltdb_start.log" >> ${VOLTDBTMD}/voltdb_start_$$.sh
+				     fi 
+                 fi				 
+				 ssh -oStrictHostKeyChecking=no -nq ${VDB_SSH_USER}@${server} "mkdir -p ${VOLTDBTMD}"
+				 scp ${VOLTDBTMD}/voltdb_start_$$.sh ${VDB_SSH_USER}@${server}:/${VOLTDBTMD} 2>&1 > /dev/null
+				 scp ${HOMEDIR}/voltdb_log4j.xml ${VDB_SSH_USER}@${server}:/${VOLTDBTMD} 2>&1 > /dev/null
+				 scp ${datapath}/config_log/deployment.xml ${VDB_SSH_USER}@${server}:/${VOLTDBTMD} 2>&1 > /dev/null
+				 scp ${datapath}/config_log/catalog.jar ${VDB_SSH_USER}@${server}:/${VOLTDBTMD}/${database_name}.jar 2>&1 > /dev/null
+				 ssh -nq ${VDB_SSH_USER}@${server} "chmod +x /${VOLTDBTMD}/voltdb_start_$$.sh"
+			     ssh -nq ${VDB_SSH_USER}@${server} "sh /${VOLTDBTMD}/voltdb_start_$$.sh"
+			     #ssh -nq ${VDB_SSH_USER}@${server} "rm -rf ${VOLTDBTMD} 2>&1 >/dev/null"
+			 done
+			 echo
+			 echo "start database $VDB_NAME"
+			 echo
+			 cnt=1
+			 while [ $cnt -lt 61 ]; do
+	              echo "Checking the ${VDB_NAME} status ......"
+                  $VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$original_client_port --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview"
+	    
+                  if [ $? -eq 0 ]; then
+				       echo
+				       echo "The ${VDB_NAME} database start successfully."
+                       exit 0
+                  fi
+                  cnt=$((cnt+1))
+                  sleep 10
+             done
+			 echo "The ${VDB_NAME} database failed to start, please contact database administrator."
+		 fi
+	 fi	 
+}
+
+function db_stop() 
+{
+    check_dbini=`ssh -nq $VDB_SSH_USER@$VDB_HOST_NODE "ls $VDB_HOME/.database.ini"`
+	if [ $? -ne 0 ]; then
+	      echo "The $VDB_NAME had been uninstalled."
+		  exit 1
+	else
+	     DATABASE_INFO=`ssh -nq $VDB_SSH_USER@$VDB_HOST_NODE "cat $VDB_HOME/.database.ini | grep '#$VDB_NAME '"`
+		 #echo $DATABASE_INFO
+		 hostList=`echo $DATABASE_INFO | awk '{print $2}'` 
+		 adminport=`echo $DATABASE_INFO | awk '{print $5}'`
+		 adminuser=`echo $DATABASE_INFO | awk '{print $12}'`
+		 adminpwd=`echo $DATABASE_INFO | awk '{print $13}'`
+		 datapath=`echo $DATABASE_INFO | awk '{print $3}'`
+		 adminpwd=`${JAVA_HOME}/bin/java -cp "${CLASSPATH}" com.hp.atom.vdb.tools.PasswdTool decrypt $adminpwd`
+		 
+                 singleHosts=`echo $hostList | awk -F, '{print $1}'`
+                 for servers in `echo "$hostList"|awk 'BEGIN{FS=","}{for (i=1; i<=NF; i++) print $i}' 2>/dev/null` ; do
+			     AHOST=$VDB_HOST_NODE
+			     server=`echo $servers | awk -F/ '{print $1}'`
+				 if [ $server == $VDB_HOST_NODE ]; then
+				     AHOST=`echo $servers | awk -F/ '{print $5}'`
+					 if [ -z $AHOST ]; then
+					     AHOST=$server
+						 #break
+					 fi
+					 break
+				 fi
+		 done		 
+		 
+		 
+		 CheckDatabaseExist=`$VDB_HOME/bin/sqlcmd --servers=$AHOST --port=$adminport --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview"`
+		 if [[ "$?" != "0" ]]; then
+		     echo "The $VDB_NAME had been stopped!!"
+			 exit 1
+		 else
+		     echo "Pause the $VDB_NAME"
+			 pauseVDB=`$VDB_HOME/bin/sqlcmd --servers=$AHOST --port=$adminport --user=$adminuser --password=$adminpwd --query="exec @Pause"`
+			 if [[ "$?" != "0" ]]; then
+			      echo "Failed to pause the $VDB_NAME"
+				  exit 1
+			 fi
+			 echo "Save snapshot of the $VDB_NAME to disk $datapath/snapshots/"
+			 saveSnapshot=`$VDB_HOME/bin/sqlcmd --servers=$AHOST --port=$adminport --user=$adminuser --password=$adminpwd --query="exec @SnapshotSave '$datapath/snapshots/', '$prefix', 1"`
+			 if [[ "$?" != "0" ]]; then
+			      echo "Failed to save snapshot of the $VDB_NAME"
+				  exit 1
+			 fi
+			 echo "Stop the $VDB_NAME"
+			 stopdb=`$VDB_HOME/bin/sqlcmd --servers=$AHOST --port=$adminport --user=$adminuser --password=$adminpwd --query="exec @Shutdown" 2>&1 > /dev/null`
+			 stopResult=$?
+			 receiveString=`echo $stopdb | grep "was lost before a response was received"`
+			 receiveStringStatus=$?
+			 if [ $stopResult == 255 -a $receiveStringStatus == 0 ]; then
+			     echo "stop the database $VDB_NAME successfully."
+			 else
+			     echo $stopdb
+			     echo "Failed to stop the database $VDB_NAME"
+             fi			 
+         fi		 
+	fi
+	   
+}
+
+function db_rejoin()
+{
+    VOLTDBTMD="$SNAPTMD/vdb_tool_rejoin.$$"
+	mkdir -p $VOLTDBTMD
+	REJOINLOGFile="$SNAPTMD/vdb_tool_rejoin.$$/rejoin.log"
+    #parse rejoin node format
+    rejoinNode=$1
+	placementGroupName=$2
+	
+	
+	if [[ "$rejoinNode" =~ (.+)/(.*)/(.*)/(.*)/(.*) || "$rejoinNode" =~ (.+)/(.*)/(.*)/(.*) || "$rejoinNode" =~ (.+)/(.*)/(.*) ]]; then
+	     rejoinNodeHost=${BASH_REMATCH[1]}
+		 rejoinNodeInternal=${BASH_REMATCH[2]}
+		 if [ -z $rejoinNodeInternal ]; then
+		     rejoinNodeInternal=$rejoinNodeHost
+		 fi
+		 rejoinNodePublic=${BASH_REMATCH[3]}
+		 if [ -z $rejoinNodePublic ]; then
+		     rejoinNodePublic=$rejoinNodeHost
+		 fi
+		 rejoinNodeReplicaiton=$rejoinNodeHost
+		 rejoinNodeAdmin=$rejoinNodeHost
+		 if [[ "$rejoinNode" =~ (.+)/(.*)/(.*)/(.*)/(.*) ]]; then
+		     rejoinNodeReplicaiton=${BASH_REMATCH[4]}
+		     rejoinNodeAdmin=${BASH_REMATCH[5]}
+			 snapWriteLog "rejoin node external(client) interface:${rejoinNodeHost}, internal interface:${rejoinNodeInternal}, public(http) interface:${rejoinNodePublic}, replication interface:${rejoinNodeReplicaiton}, admin interface:${rejoinNodeAdmin}"
+		 elif [[ "$rejoinNode" =~ (.+)/(.*)/(.*)/(.*) ]]; then
+		     rejoinNodeReplicaiton=${BASH_REMATCH[4]}
+			 snapWriteLog "rejoin node external(client,admin) interface:${rejoinNodeHost}, internal interface:${rejoinNodeInternal}, public(http) interface:${rejoinNodePublic}, replication interface:${rejoinNodeReplicaiton}"
+		 else
+		     snapWriteLog "rejoin node external(client,admin,replication) interface:${rejoinNodeHost}, internal interface:${rejoinNodeInternal}, public interface:${rejoinNodePublic}"
+		  fi
+	else
+	     snapWriteLog "  ERROR:$rejoinNode is not in right format: '<external(client,admin,replication) interface>/<internal interface>/<public(http) interface>' [placement_group_name]  or '<external(client,admin) interface>/<internal interface>/<public(http) interface>/<replication interface>' [placement_group_name]  or '<external(client) interface>/<internal interface>/<public(http) interface>/<replication interface>/<admin interface>' [placement_group_name],  please re-input."
+	     exit 1
+	fi
+	
+	#check current host is alive in the cluster
+	DATABASE_INFO=`cat $VDB_HOME/.database.ini | grep "#$VDB_NAME "`
+	hostList=`echo $DATABASE_INFO | awk '{print $2}'` 
+	rootpath=`echo $DATABASE_INFO | awk '{print $3}'`
+	adminport=`echo $DATABASE_INFO | awk '{print $5}'`
+	original_admin_port=$adminport
+	adminuser=`echo $DATABASE_INFO | awk '{print $12}'`
+	adminpwd=`echo $DATABASE_INFO | awk '{print $13}'`
+	voltdb_start_port=`echo $DATABASE_INFO | awk '{print $14}'`
+    voltdb_client_port=`echo $DATABASE_INFO | awk '{print $4}'`
+	original_client_port=$voltdb_client_port
+	voltdb_httpd_port=`echo $DATABASE_INFO | awk '{print $6}'`
+	voltdb_internal_port=`echo $DATABASE_INFO | awk '{print $7}'`
+	voltdb_repl_port=`echo $DATABASE_INFO | awk '{print $9}'`
+	original_repl_port=$voltdb_repl_port
+	#voltdb_jmx_port=`echo $DATABASE_INFO | awk '{print $8}'`
+	voltdb_zookeeper_port=`echo $DATABASE_INFO | awk '{print $8}'`
+	database_work_model=`echo $DATABASE_INFO | awk '{print $15}'`
+	VOLTDB_PLACEMENT_GROUPS=`echo $DATABASE_INFO | awk '{print $16}'`
+	
+	if [ "x$placementGroupName" == "x" ]; then
+	    getPlacementGroupName $rejoinNodeHost
+		placementGroupName=$matched_group_name
+	fi
+	
+	adminpwd=`${JAVA_HOME}/bin/java -cp "${CLASSPATH}" com.hp.atom.vdb.tools.PasswdTool decrypt $adminpwd`
+	if [[ "x$rejoinNodeReplicaiton" != "x" ]]; then
+         voltdb_repl_port=$rejoinNodeReplicaiton:$voltdb_repl_port
+    fi
+	if [[ "x$rejoinNodeAdmin" != "x" ]]; then
+         adminport=$rejoinNodeAdmin:$adminport
+    fi
+	hostcountNum=`echo "$hostList"|awk 'BEGIN{FS=","}{print NF}'`
+	echo "get the host count is $hostcountNum"
+	newString="hostcount=\"$hostcountNum\""
+	replaceString=`grep "hostcount=" ${rootpath}/config_log/deployment.xml | awk 'BEGIN{FS=" "}{for (i=1; i<=NF; i++) print $i}' | grep "hostcount="`
+	sed -i -e "s|$replaceString|$newString|g" ${rootpath}/config_log/deployment.xml
+	#end replace hostcounts
+	for servers in `echo "$hostList"|awk 'BEGIN{FS=","}{for (i=1; i<=NF; i++) print $i}' 2>/dev/null` ; do
+	     server=`echo $servers | awk -F/ '{print $1}'`
+		 IHOST=`echo $servers | awk -F/ '{print $2}'`
+		 PHOST=`echo $servers | awk -F/ '{print $3}'`
+		 AHOST=`echo $servers | awk -F/ '{print $5}'`
+		 
+		 if [ "$VDB_HOST_NODE" == "$server" ]; then
+		     if [ "x$IHOST" == "x" ]; then
+			      START_HOST=$VDB_HOST_NODE
+             else
+			       START_HOST=$IHOST
+             fi
+             admin_host=$AHOST			 
+         fi		 
+	done
+	
+	CheckDatabaseExist=`$VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$voltdb_client_port --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview" > .overview.txt `
+	if [ $? -ne 0 ]; then
+		 snapWriteLog "The node does not connected the voltdb cluster, it is not as the rejoin operation host."
+		 exit 1
+	else
+	     snapWriteLog "The host ${rejoinNodeHost} can be rejoined to the cluster."
+    fi	
+	Deployments=`$VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$voltdb_client_port --user=$adminuser --password=$adminpwd --query="exec @SystemInformation deployment" > .deployment.txt`
+	aliveHostIncluster=`cat .overview.txt | grep -n HOSTNAME | wc -l`
+	snapWriteLog "alive hosts in cluster is:"$aliveHostIncluster
+	hostcounts=`cat .deployment.txt | grep hostcount | awk '{print $2}'`
+	snapWriteLog "hostcounts is:"$hostcounts
+	if [ $aliveHostIncluster -lt $hostcounts ]; then
+	   snapWriteLog "The rejoin operation permit, continue..."
+	else
+	    snapWriteLog " alive host counts is equals the hostcount configurtion in the cluster, rejoin operation ignore!"
+		exit 0
+	fi
+	
+	#ssh check the rejoin node
+	ssh -nq $VDB_SSH_USER@$rejoinNodeHost echo hello 2>&1 > /dev/null
+	if [ $? -ne 0 ]; then
+		  snapWriteLog "SSH user [$VDB_SSH_USER] can't access [$rejoinNodeHost], Please check."
+		  exit 2
+    else		  
+	     snapWriteLog "ssh connect [$rejoinNodeHost] node successfully."
+	fi
+	
+	#check rejoin node Voltdb installation
+	ssh -nq $VDB_SSH_USER@$rejoinNodeHost "ls $VDB_HOME 2>&1 >/dev/null" 2>&1 > /dev/null
+	if [ $? -ne 0 ]; then
+	    snapWriteLog "The Voltdb home $VDB_HOME does not found in rejoin node"
+		exit 3
+	fi
+	
+	#check voltdb version
+	hostVersion=`cat $VDB_HOME/version.txt`
+	snapWriteLog "host voltdb version is:"$hostVersion
+	rejoinVersion=`ssh -nq $VDB_SSH_USER@$rejoinNodeHost "cat $VDB_HOME/version.txt"`
+	echo "rejoin node voltdb version is:"$rejoinVersion
+	if [ "x$hostVersion" != "x$rejoinVersion" ]; then
+	   snapWriteLog "rejoin node voltdb version is not equals to the host node voltdb version, exit rejoin operation. "
+	   exit 4
+	fi
+	
+	#delete voltdb root path in rejoin node
+	snapWriteLog "construct snap vdb tool path in rejoin node($rejoinNodeHost)."
+	ssh -nq $VDB_SSH_USER@$rejoinNodeHost "rm -fr $rootpath" 2>&1 > /dev/null
+	ssh -nq $VDB_SSH_USER@$rejoinNodeHost "rm -fr $HOMEDIR" 2>&1 > /dev/null
+	ssh -nq $VDB_SSH_USER@$rejoinNodeHost "mkdir -p $HOMEDIR" 2>&1 > /dev/null
+	snapWriteLog "copy the voltdb_log4j.xml file into rejoin node($rejoinNodeHost)."
+	scp $HOMEDIR/voltdb_log4j.xml $VDB_SSH_USER@$rejoinNodeHost:$HOMEDIR 2>&1 > /dev/null
+	snapWriteLog "copy the deployment.xml file into rejoin node($rejoinNodeHost)."
+	scp $rootpath/config_log/deployment.xml $VDB_SSH_USER@$rejoinNodeHost:$HOMEDIR 2>&1 > /dev/null
+	#snapWriteLog "copy the ${VDB_NAME}.jar file into rejoin node($rejoinNodeHost)."
+	#scp $rootpath/config_log/catalog.jar $VDB_SSH_USER@$rejoinNodeHost:$HOMEDIR/${VDB_NAME}.jar 2>&1 > /dev/null
+	
+	#generateVDBScriptForRejoinNode
+	snapWriteLog "construct snap vdb tool shell script and copy it into rejoin node($rejoinNodeHost)."
+	sed -e "s~${VDB_HOST_NODE}~${rejoinNodeHost}~" "$HOMEDIR/snap_vdb_shell.sh" > "$HOMEDIR/snap_vdb_shell_${rejoinNodeHost}.sh"
+	scp $HOMEDIR/snap_vdb_shell_${rejoinNodeHost}.sh $VDB_SSH_USER@$rejoinNodeHost:$HOMEDIR/snap_vdb_shell.sh 2>&1 > /dev/null
+	ssh -nq ${VDB_SSH_USER}@${rejoinNodeHost} "chmod +x $HOMEDIR/snap_vdb_shell.sh" 
+	
+	rm -f $HOMEDIR/snap_vdb_shell_${rejoinNodeHost}.sh
+	
+	snapWriteLog "rejoin node $rejoinNodeHost ......"
+	
+	voltdb_client_port=$rejoinNodeHost:$voltdb_client_port
+	voltdb_httpd_port=$rejoinNodePublic:$voltdb_httpd_port
+	
+	if [ "x$placementGroupName" != "x" ]; then
+	    placement_group="--placement-group=$placementGroupName"
+	else
+	    placement_group=""
+	fi
+	
+	echo "" > ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	echo "export JAVA_HOME=$VDB_JAVA_HOME " >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	echo "export PATH=$JAVA_HOME/bin:$PATH " >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	echo "export LOG4J_CONFIG_PATH=$HOMEDIR/voltdb_log4j.xml" >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	echo "export VOLTDB_OPTS=\"${VOLTDB_OPTS} -XX:+PerfDisableSharedMem -DDISABLE_IMMEDIATE_SNAPSHOT_RESCHEDULING=true -DDISABLE_JMX=true\"" >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	echo "export VOLTDB_HEAPMAX=${VOLTDB_HEAPMAX}" >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	#echo "export VOLTDB_OPTS=\"-Dvolt.rmi.agent.port=${voltdb_jmx_port}\"" >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	if [ $database_work_model == 'REPLICA' ]; then
+		  echo "${VDB_HOME}/bin/voltdb rejoin --replica --deployment=$HOMEDIR/deployment.xml --host=$START_HOST:$voltdb_internal_port --client=$voltdb_client_port --internal=$voltdb_internal_port  --replication=$voltdb_repl_port --zookeeper=$voltdb_zookeeper_port  --admin=$adminport --http=$voltdb_httpd_port --externalinterface=$rejoinNodeHost  --internalinterface=$rejoinNodeInternal --publicinterface=$rejoinNodePublic $placement_group -B 2>&1 > /${VOLTDBTMD}/voltdb_rejoin.log" >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	else
+		  echo "${VDB_HOME}/bin/voltdb rejoin --deployment=$HOMEDIR/deployment.xml --host=$START_HOST:$voltdb_internal_port --client=$voltdb_client_port --internal=$voltdb_internal_port  --replication=$voltdb_repl_port --zookeeper=$voltdb_zookeeper_port  --admin=$adminport --http=$voltdb_httpd_port --externalinterface=$rejoinNodeHost  --internalinterface=$rejoinNodeInternal --publicinterface=$rejoinNodePublic $placement_group -B 2>&1 > /${VOLTDBTMD}/voltdb_rejoin.log" >> ${VOLTDBTMD}/voltdb_rejoin_$$.sh
+	fi
+    ssh -nq $VDB_SSH_USER@$rejoinNodeHost "mkdir -p ${VOLTDBTMD}"
+	scp ${VOLTDBTMD}/voltdb_rejoin_$$.sh ${VDB_SSH_USER}@${rejoinNodeHost}:/${VOLTDBTMD} 2>&1 > /dev/null
+	ssh -nq ${VDB_SSH_USER}@${rejoinNodeHost} "chmod +x /${VOLTDBTMD}/voltdb_rejoin_$$.sh"
+	ssh -nq ${VDB_SSH_USER}@${rejoinNodeHost} "sh /${VOLTDBTMD}/voltdb_rejoin_$$.sh"
+	
+	echo "waiting rejoin......"
+	
+	sleep 10
+	checkRejoinNodeStatus
+	if [ $? -eq 0 ]; then
+	   snapWriteLog "Start sync .database.ini file in current cluster."
+	else
+       snapWriteLog "rejoin node failure, please contact with DBA!"
+	   exit 1
+	fi
+	
+	rejoinNodeGroupMapping="$rejoinNodeHost:$placementGroupName"
+	echo "rejon node placement group is: "$rejoinNodeGroupMapping
+	
+	
+	#removed the deployment.xml in the rejoin node
+	ssh -nq ${VDB_SSH_USER}@${rejoinNodeHost} "rm -f $HOMEDIR/deployment.xml"
+	
+	buildDatabaseInfoAndSyncInCluster
+	
+	rm -f .overview.txt
+	rm -f .deployment.txt
+	
+	snapWriteLog "rejoin completed."
+	
+}
+
+function checkRejoinNodeStatus()
+{
+   snapWriteLog "Start checking rejoin node status"
+   cnt=30
+	while [ $cnt -gt 0 ]; do
+	    echo "Check rejoin node connection status...... $cnt"
+		$VDB_HOME/bin/sqlcmd --servers=$admin_host --port=$original_admin_port --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview" | grep " ${rejoinNodeHost} " 2>&1 > /dev/null
+		if [ $? -eq 0 ]; then
+		     echo ""
+		     snapWriteLog "rejoin node successfully."
+			 return 0
+		else
+		     echo ""
+		fi
+		cnt=$((cnt-1))
+        sleep 5
+	done
+	return 1
+}
+
+function buildDatabaseInfoAndSyncInCluster()
+{
+    snapWriteLog "build the new .databse.ini file and distribute into cluster nodes."
+    $VDB_HOME/bin/sqlcmd --servers=$VDB_HOST_NODE --port=$original_client_port --user=$adminuser --password=$adminpwd --query="exec @SystemInformation overview" > .overview.txt 
+	lines=`cat .overview.txt | grep -c " IPADDRESS " `
+	#echo "lines="$lines
+	CHOSEDIDS=()
+	CHOSEDIPS=()
+	CHOSEDINTERALS=()
+	CHOSEDPUBLICS=()
+	CHOSEDREPLICATIONS=()
+	CHOSEDADMINS=()
+	CHOSEDNETWORK=()
+	CHOSEDHOSTNAMES=()
+	
+	#build the ip and ipaddress array.
+	 cat .overview.txt | grep " IPADDRESS " | sort | while read line
+	 do
+	     echo $line >> .overview_ip.tmp
+	 done
+	 
+	 while read line
+	 do
+	    id=`echo $line | awk '{print $1}'`
+        ip=`echo $line | awk '{print $3}'`
+		CHOSEDIDS=(${CHOSEDIDS[@]} "$id")
+		CHOSEDIPS=(${CHOSEDIPS[@]} "$ip")		
+		#echo ${#CHOSEDIDS[@]} 
+	    #echo ${CHOSEDIPS[@]}
+	 done < .overview_ip.tmp
+	 rm -f .overview_ip.tmp
+	 
+	 # build the hostname array.
+	 cat .overview.txt | grep " HOSTNAME " | sort | while read line
+	 do
+	     echo $line >> .overview_hostname.tmp
+	 done
+	 
+	 while read line
+	 do
+        inter=`echo $line | awk '{print $3}'`
+		CHOSEDHOSTNAMES=(${CHOSEDHOSTNAMES[@]} $inter)
+	 done < .overview_hostname.tmp
+	 rm -f .overview_hostname.tmp
+	 
+	 # build the interal interface array.
+	 cat .overview.txt | grep " INTERNALINTERFACE " | sort | while read line
+	 do
+	     echo $line >> .overview_internal.tmp
+	 done
+	 
+	 while read line
+	 do
+        inter=`echo $line | awk '{print $3}'`
+		if [ -z $inter ]; then
+			  CHOSEDINTERALS=(${CHOSEDINTERALS[@]} "-1")
+		else
+		     CHOSEDINTERALS=(${CHOSEDINTERALS[@]} $inter)
+		fi
+			
+	 done < .overview_internal.tmp
+	 rm -f .overview_internal.tmp
+	 
+	 # build the public interface array.
+	 cat .overview.txt | grep " PUBLICINTERFACE " | sort | while read line
+	 do
+	     echo $line >> .overview_public.tmp
+	 done
+	 
+	 while read line
+	 do
+        public=`echo $line | awk '{print $3}'`
+		if [ -z $public ]; then
+		      
+			   CHOSEDPUBLICS=(${CHOSEDPUBLICS[@]} "-1")
+		else
+		     CHOSEDPUBLICS=(${CHOSEDPUBLICS[@]} $public)
+		fi
+			
+	 done < .overview_public.tmp
+	 rm -f .overview_public.tmp
+	 
+	 # build the replication interface array.
+	 cat .overview.txt | grep " DRINTERFACE " | sort | while read line
+	 do
+	     echo $line >> .overview_replicate.tmp
+	 done
+	 
+	 while read line
+	 do
+        replicate=`echo $line | awk '{print $3}'`
+		if [ -z $replicate ]; then
+		      
+			   CHOSEDREPLICATIONS=(${CHOSEDREPLICATIONS[@]} "-1")
+		else
+		     CHOSEDREPLICATIONS=(${CHOSEDREPLICATIONS[@]} $replicate)
+		fi
+			
+	 done < .overview_replicate.tmp
+	 rm -f .overview_replicate.tmp
+	 
+	 # build the admin interface array.
+	 cat .overview.txt | grep " ADMININTERFACE " | sort | while read line
+	 do
+	     echo $line >> .overview_admin.tmp
+	 done
+	 
+	 while read line
+	 do
+        admininfo=`echo $line | awk '{print $3}'`
+		if [ -z $admininfo ]; then
+		      
+			   CHOSEDADMINS=(${CHOSEDADMINS[@]} "-1")
+		else
+		     CHOSEDADMINS=(${CHOSEDADMINS[@]} $admininfo)
+		fi
+			
+	 done < .overview_admin.tmp
+	 rm -f .overview_admin.tmp
+	 
+	 
+	snapWriteLog "The DB cluster contains ids:"${CHOSEDIDS[@]} 
+	snapWriteLog "The DB cluster contains hostIps:"${CHOSEDIPS[@]}
+	#snapWriteLog "The DB cluster contains internal interfaces:"${CHOSEDINTERALS[@]} 
+	#snapWriteLog "The DB cluster contains public interfaces:"${CHOSEDPUBLICS[@]}
+	
+	for (( i=0 ; i < ${#CHOSEDIDS[@]} ; i++ )); do
+	    if [ ${CHOSEDINTERALS[i]} = "-1" ]; then
+		    CHOSEDINTERALS[i]=""
+		fi
+		if [ ${CHOSEDPUBLICS[i]} = "-1" ]; then
+		    CHOSEDPUBLICS[i]=""
+		fi
+		if [ ${CHOSEDREPLICATIONS[i]} = "-1" ]; then
+		    CHOSEDREPLICATIONS[i]=""
+		fi
+		if [ ${CHOSEDADMINS[i]} = "-1" ]; then
+		    CHOSEDADMINS[i]=""
+		fi
+		matched=0
+		for servers in `echo "$hostList"|awk 'BEGIN{FS=","}{for (i=1; i<=NF; i++) print $i}' 2>/dev/null` ; do
+			server=`echo $servers | awk -F/ '{print $1}'`
+		    if [ "$server" == "${CHOSEDIPS[i]}" -o "$server" == "${CHOSEDHOSTNAMES[i]}" ]; then
+			    if [ "$rejoinNodeHost" != "${CHOSEDIPS[i]}" -a "$rejoinNodeHost" != "${CHOSEDHOSTNAMES[i]}" ]; then
+				   CHOSEDNETWORK[i]=${server}/${CHOSEDINTERALS[i]}/${CHOSEDPUBLICS[i]}/${CHOSEDREPLICATIONS[i]}/${CHOSEDADMINS[i]}
+				   CHOSEDIPS[i]=${server}
+		           matched=1
+				 fi  
+            fi				  
+	    done
+	    if [ $matched -eq 0 ]; then
+		    CHOSEDNETWORK[i]=${rejoinNodeHost}/${CHOSEDINTERALS[i]}/${CHOSEDPUBLICS[i]}/${CHOSEDREPLICATIONS[i]}/${CHOSEDADMINS[i]}
+			CHOSEDIPS[i]=${rejoinNodeHost}
+		fi
+	    
+	done
+	
+    snapWriteLog "Networks:"${CHOSEDNETWORK[@]}
+	
+	IP_INFOS=${CHOSEDNETWORK[0]}
+	for (( i=1 ; i < ${#CHOSEDNETWORK[@]} ; i++ )); do
+	    IP_INFOS="${IP_INFOS},${CHOSEDNETWORK[i]}"
+	done
+	# snapWriteLog "IP_INFOS="$IP_INFOS
+	
+	rebuildPlaceGroupNameMapping $rejoinNodeGroupMapping $VOLTDB_PLACEMENT_GROUPS
+	
+	buildNewDatabaseInfo
+}
+
+# function buildNewDatabaseInfo()
+# {
+    # while read line
+	# do
+	   # DATABASE_NAME=`echo $line | awk '{print $1}'`
+	   # info=`echo $line | awk '{if($1=="#${VDB_NAME}"){$2="'$IP_INFOS'"}}; {for (i=1; i<=NF; i++) print $i}'`
+       # echo $info >> .database.ini.new   
+	# done < $VDB_HOME/.database.ini
+	# for (( i=0 ; i < ${#CHOSEDIPS[@]} ; i++ )); do
+	    # cluster_ip=${CHOSEDIPS[i]}
+		# scp .database.ini.new  $VDB_SSH_USER@$cluster_ip:$VDB_HOME/.database.ini 2>&1 > /dev/null
+		# if [ $? = 0 ]; then
+		   # snapWriteLog "distribute the .database.ini file to "$cluster_ip
+		# else
+		   # snapWriteLog "distribute the .database.ini file  failed to "$cluster_ip
+        # fi		
+	# done
+	# rm -f .database.ini.new
+		
+# }
+
+function buildNewDatabaseInfo()
+{
+    while read line
+	do
+	   DATABASE_NAME=`echo $line | awk '{print $1}'`
+	   fieldNum=`echo $line | awk '{print NF}'`
+	   if [ $fieldNum -eq 16 ]; then
+	      # equals to 16
+		  info=`echo $line | awk '{if($1=="#'${VDB_NAME}'"){$2="'$IP_INFOS'"}}; {for (i=1; i<=NF; i++) print $i}'`
+		  info2=`echo $info | awk '{if($1=="#'${VDB_NAME}'"){$16="'$NEW_GROUP_NODE_MAPPING'"}}; {for (i=1; i<=NF; i++) print $i}'`
+	   else
+	      # less than 16
+		  info=`echo $line | awk '{if($1=="#'${VDB_NAME}'"){$2="'$IP_INFOS'"}}; {for (i=1; i<=NF; i++) print $i}'`
+		  if [ $DATABASE_NAME == "#${VDB_NAME}" ]; then 
+		      info2="$info $NEW_GROUP_NODE_MAPPING"
+		  else
+		      info2=info
+          fi		    
+	   fi
+	   echo $info2 >> .database.ini.new
+	     
+	done < $VDB_HOME/.database.ini
+	for (( i=0 ; i < ${#CHOSEDIPS[@]} ; i++ )); do
+	    cluster_ip=${CHOSEDIPS[i]}
+		scp .database.ini.new  $VDB_SSH_USER@$cluster_ip:$VDB_HOME/.database.ini 2>&1 > /dev/null
+		if [ $? = 0 ]; then
+		   snapWriteLog "distribute the .database.ini file to "$cluster_ip
+		else
+		   snapWriteLog "distribute the .database.ini file  failed to "$cluster_ip
+        fi		
+	done
+	rm -f .database.ini.new	
+}
+
+###############################################################################
+# read the xml file and put regarding elements into variables: TAG_NAME, ATTRIBUTES
+function read_xml_file {
+    local IFS=\>
+    read -d\< ENTITY CONTENT
+    local RET=$?
+    TAG_NAME=${ENTITY%% *}   # delete the longest pattern space from the end
+    ATTRIBUTES_T=${ENTITY#* }  # delete the shortest pattern space from the head
+    ATTRIBUTES=${ATTRIBUTES_T%*/}
+    return $RET
+}
+
+###############################################################################
+# parse regarding elements into key-value pairs
+function parse_xml_elements {
+    eval local $ATTRIBUTES 2>&1 >/dev/null
+    if [[ $TAG_NAME = "commandlog" ]] ; then
+        if [[ "x$enabled" != "x" ]]; then
+            echo "commandlog.enabled=$enabled"
+           
+        fi
+    fi
+}
+
+function snapWriteLog
+{
+    echo "$*"
+    echo "$(date '+%Y-%m-%d %H:%M:%S %z') | $*" >>"$REJOINLOGFile"
+	echo ""
+}
+
+###################################################################################
+# $1- A node external IP
+function getPlacementGroupName
+{
+   node_external_interface=$1
+   matched_group_name=""
+   placement_group=""
+   #echo "VOLTDB_PLACEMENT_GROUPS is:"$VOLTDB_PLACEMENT_GROUPS
+   for groupmap in ` echo $VOLTDB_PLACEMENT_GROUPS | awk 'BEGIN{FS=";"}{for (i=1; i<=NF; i++) print $i}' 2>/dev/null`; do
+	   external=`echo ${groupmap} | awk -F ':' '{print $1}'`
+	   groupname=`echo ${groupmap} | awk -F ':' '{print $2}'`
+	   if [ $node_external_interface == $external ]; then
+	       matched_group_name=$groupname
+	   fi
+   done
+   if [ "x$matched_group_name" != "x" ]; then
+        placement_group="--placement-group=$matched_group_name"
+   fi
+   echo "the group name is:"$placement_group
+}
+
+function rebuildPlaceGroupNameMapping
+{
+   #"15.116.79.45:row6.rack5.server1"
+   rejoinNodeGroupMapping=$1 
+   VOLTDB_PLACEMENT_GROUPS=$2
+   NEW_GROUP_NODE_MAPPING=""
+   for (( i=0 ; i < ${#CHOSEDIPS[@]} ; i++ )); do
+       matched_group_name=""
+       for groupmap in ` echo $VOLTDB_PLACEMENT_GROUPS | awk 'BEGIN{FS=";"}{for (i=1; i<=NF; i++) print $i}' 2>/dev/null`; do
+	       external=`echo ${groupmap} | awk -F ':' '{print $1}'`
+	       groupname=`echo ${groupmap} | awk -F ':' '{print $2}'`
+	       if [ ${CHOSEDIPS[i]} == $external -a ${CHOSEDIPS[i]} != $rejoinNodeHost ]; then
+	           matched_group_name=$groupname
+			   if [ "x$NEW_GROUP_NODE_MAPPING" == "x" ]; then
+	               NEW_GROUP_NODE_MAPPING="${CHOSEDIPS[i]}:$matched_group_name"
+	           else
+	               NEW_GROUP_NODE_MAPPING="$NEW_GROUP_NODE_MAPPING;${CHOSEDIPS[i]}:$matched_group_name" 
+	           fi
+	       fi 
+       done 
+   done
+   NEW_GROUP_NODE_MAPPING="$NEW_GROUP_NODE_MAPPING;$rejoinNodeGroupMapping"
+   echo "new group node mapping is:"$NEW_GROUP_NODE_MAPPING
+}
+
+##----------------------------------------
+#Main
+##----------------------------------------
+db_config_env
+
+if [ "$1" = "start" ]; then
+    db_start
+elif [ "$1" = "stop" ]; then
+    db_stop
+elif [ "$1" = "status" ]; then  
+    #echo "$VDB_NAME is `db_status`."    
+   db_status
+elif  [ "$1" = "rejoin" ]; then
+    db_rejoin $2 $3 
+else
+    usage
+fi

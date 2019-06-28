@@ -1,0 +1,12 @@
+name=abmBalanceCache
+packageName=com.hp.usage.datastruct.beans.abmext
+pojoClass=com.hp.usage.datastruct.beans.abmext.AccountBalanceImpl
+hbmFile=ormapping/abm.AccountBalance.hbm.xml
+partitionField=subscriberId
+sqlsMap=GetByAccount->where account_id = ? and subscriber_id = ? and state_recycle = 'A' and state != 0; \
+GetAllByAccount->where subscriber_id=? and account_id=? ORDER BY priority DESC, id ASC, subscriber_id; \
+GetBySubscriber->where subscriber_id=? and state_recycle='A'
+parentName=abmAccountCache
+batchCommitGroup=sprGroup
+fk=subscriber_id,account_id
+fixedFilterCondition=

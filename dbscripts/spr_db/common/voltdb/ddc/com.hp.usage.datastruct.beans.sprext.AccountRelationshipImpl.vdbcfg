@@ -1,0 +1,19 @@
+name=accountRelationshipCache
+pojoClass=com.hp.usage.datastruct.beans.sprext.AccountRelationshipImpl
+hbmFile=ormapping/AccountRelationship.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=;BY_SUBSCRIBER->where subscriber_id=? order by subscriber_id, device_id, account_item_type_group_id
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprext
+parentName=subscriberCache
+fk=subscriber_id
+globalSqls=
+filterField=device_id = :currentDeviceId or device_id < :otherDeviceIdUpper
+GLName=
+sqlsMapGL=
+
+
+
+

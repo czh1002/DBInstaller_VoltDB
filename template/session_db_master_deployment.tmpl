@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<deployment>
+  <cluster kfactor="$PLACEHOLDER_KFACTOR" sitesperhost="$PLACEHOLDER_SITES_PER_HOSTS" hostcount="$PLACEHOLDER_HOST_COUNT" schema="catalog"/>
+  <security enabled="true"/>
+  <dr id="$PLACEHOLDER_DRID" />
+  <users>
+     <user name="$PLACEHOLDER_ADMIN_USER" password="$PLACEHOLDER_ADMIN_PASSWORD" roles="administrator" plaintext="true"/>
+     <user name="$PLACEHOLDER_DB_USER" password="$PLACEHOLDER_DB_PASSWORD" roles="user"/>
+  </users>
+  <paths>
+    <voltdbroot path="$PLACEHOLDER_DB_ROOT/dbs/session"/>
+    <snapshots path="snapshots"/>
+	<commandlogsnapshot path="loggingSnapshots"/>
+    <commandlog path="logging"/>
+	<droverflow path="droverflow" />
+  </paths>
+  <admin-mode adminstartup="false" port="$PLACEHOLDER_ADMIN_PORT"/>
+  <heartbeat timeout="10"/>
+  <httpd port="$PLACEHOLDER_HTTPD_PORT">
+    <jsonapi enabled="true"/>
+  </httpd>
+  <snapshot enabled="false" prefix="SESSION" retain="3" frequency="1800s"/>
+  <commandlog enabled="false"/>
+  <consistency readlevel="fast"/>
+  <systemsettings>
+    
+	<resourcemonitor frequency="60">
+        <memorylimit size="80%"/>
+        <disklimit>
+           <feature name="commandlog" size="80%" />
+		   <feature name="commandlogsnapshot" size="80%" />
+		   <feature name="droverflow" size="80%" />
+        </disklimit>
+    </resourcemonitor>
+ </systemsettings>
+</deployment>

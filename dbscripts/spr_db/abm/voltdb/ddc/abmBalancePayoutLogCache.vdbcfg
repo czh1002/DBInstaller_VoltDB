@@ -1,0 +1,10 @@
+name=abmBalancePayoutLogCache
+packageName=com.hp.usage.datastruct.beans.abmext
+pojoClass=com.hp.usage.datastruct.beans.abmext.BalancePayoutLogImpl
+hbmFile=ormapping/abm.BalancePayoutLog.hbm.xml
+partitionField=subscriberId
+sqlsMap=
+parentName=
+batchCommitGroup=sprGroup
+fk=
+exportTable=true

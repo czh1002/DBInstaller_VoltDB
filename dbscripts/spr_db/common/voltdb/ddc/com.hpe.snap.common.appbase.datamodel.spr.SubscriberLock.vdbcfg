@@ -1,0 +1,19 @@
+name=subscriberLockCache
+pojoClass=com.hpe.snap.common.appbase.datamodel.spr.SubscriberLock
+hbmFile=ormapping/SubscriberLock.hbm.xml
+partitionField=subscriberId
+partitionedPK=true
+sqlsMap=U_RELEASE_LOCK->update subscriber_lock set state_lock=0,state_last_change_timestamp=?,last_update_timestamp=? where subscriber_id=? and (should_lock_flag=0 or (token_id=? and state_lock=1));
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hpe.snap.common.appbase.datamodel.spr
+parentName=
+fk=
+globalSqls=
+filterField=
+GLName=
+sqlsMapGL=
+
+
+
+

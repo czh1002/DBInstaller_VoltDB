@@ -1,0 +1,21 @@
+name=subscriberCache
+pojoClass=com.hp.usage.datastruct.beans.sprext.SubscriberImpl
+hbmFile=ormapping/Subscriber.hbm.xml
+partitionField=id
+partitionedPK=true
+sqlsMap=;
+batchCommitGroup=sprGroup
+exportTable=
+packageName=com.hp.usage.datastruct.beans.sprext
+parentName=
+fk=
+globalSqls=
+filterField=
+GLName=
+sqlsMapGL=
+
+
+sizeCondition=last_usage_timestamp>=? and state_recycle='A'
+
+
+
