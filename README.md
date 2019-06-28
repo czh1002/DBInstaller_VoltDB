@@ -13,6 +13,7 @@ The installation tool support multiple deployment model of single VoltDB cluster
 * voltdb: Voltdb indtalltion script(python)
 
 #### Voltdb deployment topology
+<pre>
 Deployment:
   DATABASE_TYPE: voltdb
   DATABASE_NAME: sample_db
@@ -47,3 +48,4 @@ Deployment:
     - external_interface: 15.116.78.152
       placement_group: row6.rack5.server3
     - ......
+</pre>
