@@ -24,8 +24,8 @@ Deployment:
   ONLY_DEPLOYMENT_OPERATION: True
   VOLTDB_ADMIN_USERNAME: vdbadmin
   VOLTDB_ADMIN_PASSWORD: vdbadmin
-  VOLTDB_USER_NAME: spr_user
-  VOLTDB_USER_PASSWORD: spr_user
+  VOLTDB_USER_NAME: volt_user
+  VOLTDB_USER_PASSWORD: volt_user
   VOLTDB_SITES_PER_HOST: 10
   VOLTDB_EXPORT_ROLL_PERIOD: 60
   VOLTDB_NODE_LIST:
@@ -35,7 +35,7 @@ Deployment:
       replication_interface: 15.116.78.152
       admin_interface: 15.116.78.152
     - ......
-  VOLTDB_ROOT_PATH: /var/opt/SIU_snap
+  VOLTDB_ROOT_PATH: /var/opt/sample_db
   VOLTDB_CLIENT_PORT: 11212
   VOLTDB_ADMIN_PORT: 11213
   VOLTDB_HTTP_PORT: 11214
